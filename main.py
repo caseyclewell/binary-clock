@@ -124,7 +124,7 @@ display.show()
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 # Enter your WIFI SSID and PW here
-wlan.connect('casvic', 'SfGvHlM2010Z98V69C68')
+wlan.connect('', '')
 
 while not wlan.isconnected() and wlan.status() >= 0:
     print("Waiting to connect:")

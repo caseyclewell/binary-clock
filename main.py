@@ -117,14 +117,14 @@ led.off()
 spi = SPI(0,sck=Pin(2),mosi=Pin(3))
 cs = Pin(5, Pin.OUT)
 display = max7219.Matrix8x8(spi, cs, 2)
-display.brightness(5)
+display.brightness(0)
 display.fill(0)
 display.show()
 
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 # Enter your WIFI SSID and PW here
-wlan.connect('', '')
+wlan.connect('xxx', 'yyy')
 
 while not wlan.isconnected() and wlan.status() >= 0:
     print("Waiting to connect:")

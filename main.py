@@ -51,6 +51,16 @@ def len_at(disp, b, x):
 
 def sync_time_with_worldtimeapi_org(rtc, blocking=True):
     TIME_API = "http://worldtimeapi.org/api/ip"
+    # setup network connection
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    # Enter your WIFI SSID and PW here
+    wlan.connect('xxx', 'yyy')
+
+    while not wlan.isconnected() and wlan.status() >= 0:
+        print("Waiting to connect:")
+        time.sleep(1)
+
 
     response = None
     while True:
@@ -78,6 +88,9 @@ def sync_time_with_worldtimeapi_org(rtc, blocking=True):
     is_dst = json["dst"]
     response.close()
     rtc.datetime((year, month, mday, week_day, hours, minutes, seconds, 0)) # (year, month, day, weekday, hours, minutes, seconds, subseconds)
+    # shutdown network connection.
+    wlan.disconnect
+    wlan.active(False)
 
 # Interrupt handler for the button press
 def button_press_handler(pin):
@@ -120,15 +133,6 @@ display = max7219.Matrix8x8(spi, cs, 2)
 display.brightness(0)
 display.fill(0)
 display.show()
-
-wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-# Enter your WIFI SSID and PW here
-wlan.connect('xxx', 'yyy')
-
-while not wlan.isconnected() and wlan.status() >= 0:
-    print("Waiting to connect:")
-    time.sleep(1)
 
 led.on()
 

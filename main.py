@@ -89,7 +89,7 @@ def sync_time_with_worldtimeapi_org(rtc, blocking=True):
     response.close()
     rtc.datetime((year, month, mday, week_day, hours, minutes, seconds, 0)) # (year, month, day, weekday, hours, minutes, seconds, subseconds)
     # shutdown network connection.
-    wlan.disconnect
+    wlan.disconnect()
     wlan.active(False)
 
 # Interrupt handler for the button press

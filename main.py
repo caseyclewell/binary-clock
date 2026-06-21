@@ -17,6 +17,7 @@ import network
 import time
 from machine import Pin, RTC, SPI
 import urequests
+import ntptime
 
 
 clock_style = 1 # 1 = 3 col, 2 = 6 col BDC, 3 = length style
@@ -50,44 +51,77 @@ def len_at(disp, b, x):
     disp.vline(x+1, 8-d2, d2, 1)
 
 def sync_time_with_worldtimeapi_org(rtc, blocking=True):
-    TIME_API = "http://worldtimeapi.org/api/ip"
     # setup network connection
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    
     # Enter your WIFI SSID and PW here
-    wlan.connect('xxx', 'yyy')
+    wifi_ssid = 'xxx'
+    wifi_password = 'yyy'
+    
+    if wifi_ssid == 'xxx' or wifi_password == 'yyy':
+        print("WARNING: Wi-Fi credentials are still set to default. Please update them in main.py.")
+    
+    print("Connecting to Wi-Fi SSID:", wifi_ssid)
+    wlan.connect(wifi_ssid, wifi_password)
 
-    while not wlan.isconnected() and wlan.status() >= 0:
-        print("Waiting to connect:")
+    # Wait for connection with timeout
+    max_wait = 20
+    while max_wait > 0 and not wlan.isconnected():
+        status = wlan.status()
+        print("Waiting for connection... status =", status)
+        if status < 0: # Connection failed or config error
+            break
         time.sleep(1)
+        max_wait -= 1
 
+    if not wlan.isconnected():
+        print("Wi-Fi connection failed! Status:", wlan.status())
+        print("Please verify your Wi-Fi SSID and password in main.py.")
+        return
 
-    response = None
+    print("Wi-Fi connected! IP config:", wlan.ifconfig())
+
+    # 1. Fetch timezone offset from ip-api.com (uses plain HTTP, no SSL)
+    offset = -7 * 3600  # Default fallback timezone offset (e.g. UTC-7)
+    try:
+        print("Fetching timezone offset from ip-api.com...")
+        response = urequests.get("http://ip-api.com/json/?fields=status,offset")
+        data = response.json()
+        if data.get("status") == "success":
+            offset = data.get("offset", offset)
+            print("Successfully detected timezone offset:", offset, "seconds")
+        else:
+            print("Failed to auto-detect timezone offset, using fallback:", offset)
+        response.close()
+    except Exception as e:
+        print("Could not auto-detect timezone offset:", e, "using fallback:", offset)
+
+    # 2. Sync UTC time using NTP
+    ntp_synced = False
     while True:
         try:
-            response = urequests.get(TIME_API)
+            print("Synchronizing time via NTP...")
+            ntptime.settime()
+            ntp_synced = True
             break
-        except:
+        except Exception as e:
+            print("NTP sync failed:", e)
             if blocking:
-                response.close()
+                time.sleep(5)
                 continue
             else:
-                response.close()
-                return
-            
-    json = response.json()
-    current_time = json["datetime"]
-    the_date, the_time = current_time.split("T")
-    year, month, mday = [int(x) for x in the_date.split("-")]
-    the_time = the_time.split(".")[0]
-    hours, minutes, seconds = [int(x) for x in the_time.split(":")]
+                break
 
-    # We can also fill in these extra nice things
-    year_day = json["day_of_year"]
-    week_day = json["day_of_week"]
-    is_dst = json["dst"]
-    response.close()
-    rtc.datetime((year, month, mday, week_day, hours, minutes, seconds, 0)) # (year, month, day, weekday, hours, minutes, seconds, subseconds)
+    if ntp_synced:
+        # Calculate local time
+        local_time = time.time() + offset
+        tm = time.localtime(local_time)
+        rtc.datetime((tm[0], tm[1], tm[2], tm[6], tm[3], tm[4], tm[5], 0))
+        print("Time synced successfully! Current local time:", time.localtime())
+    else:
+        print("NTP synchronization failed, RTC not updated.")
+
     # shutdown network connection.
     wlan.disconnect()
     wlan.active(False)

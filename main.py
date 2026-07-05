@@ -23,6 +23,9 @@ import ntptime
 clock_style = 1 # 1 = 3 col, 2 = 6 col BDC, 3 = length style
 clock_style_update_pending = False
 last_button_val = 0
+light_sleep = False
+wake_time = 30 # seconds
+wake_counter = 0
 
 
 def binary_at(disp, b, x):
@@ -54,16 +57,8 @@ def sync_time_with_worldtimeapi_org(rtc, blocking=True):
     # setup network connection
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    
     # Enter your WIFI SSID and PW here
-    wifi_ssid = 'xxx'
-    wifi_password = 'yyy'
-    
-    if wifi_ssid == 'xxx' or wifi_password == 'yyy':
-        print("WARNING: Wi-Fi credentials are still set to default. Please update them in main.py.")
-    
-    print("Connecting to Wi-Fi SSID:", wifi_ssid)
-    wlan.connect(wifi_ssid, wifi_password)
+    wlan.connect('casvic', 'SfGvHlM2010Z98V69C68')
 
     # Wait for connection with timeout
     max_wait = 20
@@ -81,6 +76,7 @@ def sync_time_with_worldtimeapi_org(rtc, blocking=True):
         return
 
     print("Wi-Fi connected! IP config:", wlan.ifconfig())
+
 
     # 1. Fetch timezone offset from ip-api.com (uses plain HTTP, no SSL)
     offset = -7 * 3600  # Default fallback timezone offset (e.g. UTC-7)
@@ -123,39 +119,49 @@ def sync_time_with_worldtimeapi_org(rtc, blocking=True):
         print("NTP synchronization failed, RTC not updated.")
 
     # shutdown network connection.
-    wlan.disconnect()
+    wlan.disconnect
     wlan.active(False)
 
+def button_transition_detected(pin):
+    global last_button_val
+    #debounce logic. Make sure the button value change is real
+    current_button_val = pin.value()
+    counter_ms = 0;
+    while (counter_ms < 20 and pin.value() == current_button_val):
+        print("running button val = " + str(pin.value()) + " current_button_val = " + str(current_button_val))
+        counter_ms += 1
+        time.sleep_ms(1)
+        
+    if counter_ms >= 20:
+        # We only trigger an update when the button value
+        # transitions from 0 to 1
+        if current_button_val == 1:
+            if last_button_val == 0:
+                last_button_val = 1
+                return True
+        else:
+            if last_button_val == 1:
+                last_button_val = 0
+    return False
+    
 # Interrupt handler for the button press
 def button_press_handler(pin):
-    global clock_style, clock_style_update_pending, last_button_val
-    # only take action if an update is not pending
-    if not clock_style_update_pending:
-        #debounce logic. Make sure the button value change is real
-        current_button_val = pin.value()
-        counter_ms = 0;
-        while (counter_ms < 20 and pin.value() == current_button_val):
-            counter_ms += 1
-            time.sleep_ms(1)
-            
-        if counter_ms >= 20:
-            # The button value change is real
-            
-            # We only trigger an update when the button value
-            # transitions from 1 to 0
-            if current_button_val == 1:
-                if last_button_val == 0:
-                    last_button_val = 1
-            else:
-                if last_button_val == 1:
-                    last_button_val = 0
-                    # update the clock style
-                    clock_style += 1
-                    if clock_style > 3:
-                        clock_style = 1
-                    clock_style_update_pending = True
-                    print('clock style update pending')
-
+    global clock_style, clock_style_update_pending, last_button_val, light_sleep, wake_counter, skip_next
+    if not light_sleep:
+        # only take action if an update is not pending
+        if not clock_style_update_pending:                
+            if button_transition_detected(pin):
+                # update the clock style
+                clock_style += 1
+                if clock_style > 3:
+                    clock_style = 1
+                clock_style_update_pending = True
+                print('clock style update pending')
+    else:
+        light_sleep = False
+        wake_counter = 0
+        print("Awake")
+     
     
 led = Pin("LED", Pin.OUT)
 led.off()
@@ -168,7 +174,10 @@ display.brightness(0)
 display.fill(0)
 display.show()
 
-led.on()
+# led.on()
+
+machine.freq(70000000)
+print('machine.freq = ' + str(machine.freq()))
 
 rtc = RTC()
 sync_time_with_worldtimeapi_org(rtc)
@@ -189,62 +198,76 @@ print("clock_style = " + str(clock_style))
                
 force_sync_counter = 0
 # set up button interrupt handlers
-button1 = Pin(16, Pin.IN, Pin.PULL_DOWN)
+button1 = Pin(16, Pin.IN, Pin.PULL_UP)
 button1.irq(trigger=Pin.IRQ_RISING | Pin.IRQ_FALLING,handler=button_press_handler)
 
+# led_count = 0
+# while led_count < 4:
+#     led.toggle()
+#     sleep(1)
+#     led_count = led_count + 1
 
 while True:
-    # check for button activity
-    if clock_style_update_pending:
-        try:
-            # save the new clock style selection to file
-            conf_file = open("bin_clock.ini", 'w')
-            conf_file.write(str(clock_style))
-            conf_file.close()
-            print("clock_style now equals " + str(clock_style) + " and has been saved to file")
-        except:
-            print("Error saving clock_style to file")
-        clock_style_update_pending = False
-       
-    led.toggle()
-    
-    # get the current time from the real time clock
-    Y, MTH, D, W, H, M, S, SS = rtc.datetime()
-    # subtract 2000 from the year to get a 2 digit year
-    Y = Y - 2000
-    #print(Y, MTH, D, H, M, S)
-
-    display.fill(0)
-
-    if clock_style == 1:
-        binary_at(display, H, 9)
-        binary_at(display, M, 12)
-        binary_at(display, S, 15)
-        binary_at(display, D, 1)
-        binary_at(display, MTH, 4)
-        binary_at(display, Y, 7)
-    elif clock_style == 2:
-        bcd_at(display, H, 8)
-        bcd_at(display, M, 11)
-        bcd_at(display, S, 14)
-        bcd_at(display, D, 0)
-        bcd_at(display, MTH, 3)
-        bcd_at(display, Y, 6)
-    else:
-        len_at(display, H, 8)
-        len_at(display, M, 11)
-        len_at(display, S, 14)
-        len_at(display, D, 0)
-        len_at(display, MTH, 3)
-        len_at(display, Y, 6)
-    
-    display.show()
-    
-    if force_sync_counter > 85000: # A little less than a day
-        force_sync_counter = 0
-        sync_time_with_worldtimeapi_org(rtc, blocking=False)
+    if not light_sleep:
+        # print("button1.value() = " + str(button1.value()))
+        # check for button activity
+        if clock_style_update_pending:
+            try:
+                # save the new clock style selection to file
+                conf_file = open("bin_clock.ini", 'w')
+                conf_file.write(str(clock_style))
+                conf_file.close()
+                print("clock_style now equals " + str(clock_style) + " and has been saved to file")
+            except:
+                print("Error saving clock_style to file")
+            clock_style_update_pending = False
+           
+        led.toggle()
         
-    force_sync_counter = force_sync_counter + 1
-    
+        # get the current time from the real time clock
+        Y, MTH, D, W, H, M, S, SS = rtc.datetime()
+        # subtract 2000 from the year to get a 2 digit year
+        Y = Y - 2000
+        #print(Y, MTH, D, H, M, S)
+
+        display.fill(0)
+
+        if clock_style == 1:
+            binary_at(display, H, 9)
+            binary_at(display, M, 12)
+            binary_at(display, S, 15)
+            binary_at(display, D, 1)
+            binary_at(display, MTH, 4)
+            binary_at(display, Y, 7)
+        elif clock_style == 2:
+            bcd_at(display, H, 8)
+            bcd_at(display, M, 11)
+            bcd_at(display, S, 14)
+            bcd_at(display, D, 0)
+            bcd_at(display, MTH, 3)
+            bcd_at(display, Y, 6)
+        else:
+            len_at(display, H, 8)
+            len_at(display, M, 11)
+            len_at(display, S, 14)
+            len_at(display, D, 0)
+            len_at(display, MTH, 3)
+            len_at(display, Y, 6)
+        
+        display.show()
+        
+        if force_sync_counter > 85000: # A little less than a day
+            force_sync_counter = 0
+            sync_time_with_worldtimeapi_org(rtc, blocking=False)
+            
+        force_sync_counter = force_sync_counter + 1
+        wake_counter = wake_counter + 1
+        if wake_counter >= wake_time:
+            # go into light sleep mode here
+            display.fill(0)
+            display.show()
+            led.off()
+            light_sleep = True
+            print("Sleep")
     sleep(1)
     
